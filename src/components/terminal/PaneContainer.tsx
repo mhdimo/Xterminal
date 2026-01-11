@@ -14,7 +14,10 @@ export function PaneContainer({ nodeId }: PaneContainerProps) {
   const { nodes, resizePane } = usePaneStore();
   const node = nodes.get(nodeId);
 
-  if (!node) return null;
+
+  if (!node) {
+    return null;
+  }
 
   // Leaf node - render terminal
   if (node.type === 'leaf') {
@@ -23,14 +26,20 @@ export function PaneContainer({ nodeId }: PaneContainerProps) {
 
   // Branch node - render split container with resizable panels
   if (node.type === 'branch') {
-    const isHorizontal = node.splitType === 'horizontal';
-    const direction = isHorizontal ? 'vertical' : 'horizontal';
+    // In react-resizable-panels v4.x:
+    // - orientation="horizontal" means panels side by side (left | right) 
+    // - orientation="vertical" means panels stacked (top / bottom)
+    // In Windows Terminal terminology:
+    // - "horizontal split" = top/bottom (horizontal divider line) = orientation="vertical"
+    // - "vertical split" = left/right (vertical divider line) = orientation="horizontal"
+    const isHorizontalSplit = node.splitType === 'horizontal';
+    const orientation = isHorizontalSplit ? 'vertical' : 'horizontal';
 
     return (
       <PanelGroup
-        direction={direction}
+        orientation={orientation}
         className="h-full w-full"
-        onLayout={(sizes) => {
+        onLayoutChange={(sizes) => {
           // Update size when user drags the handle
           if (sizes[0] !== undefined) {
             resizePane(node.id, sizes[0]);
@@ -47,12 +56,12 @@ export function PaneContainer({ nodeId }: PaneContainerProps) {
         
         {/* Windows Terminal-style resize handle - subtle line */}
         <PanelResizeHandle className={`
-          ${isHorizontal ? 'h-[4px] cursor-row-resize' : 'w-[4px] cursor-col-resize'}
+          ${isHorizontalSplit ? 'h-1 cursor-row-resize' : 'w-1 cursor-col-resize'}
           bg-transparent hover:bg-[#0078d4] active:bg-[#0078d4] transition-colors
           flex items-center justify-center group
         `}>
           <div className={`
-            ${isHorizontal ? 'w-full h-[1px]' : 'w-[1px] h-full'}
+            ${isHorizontalSplit ? 'w-full h-px' : 'w-px h-full'}
             bg-[#3d3d3d] group-hover:bg-[#0078d4] group-active:bg-[#0078d4] transition-colors
           `} />
         </PanelResizeHandle>

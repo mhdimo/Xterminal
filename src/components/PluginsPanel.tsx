@@ -84,7 +84,7 @@ export function PluginsPanel({ isOpen, onClose, onRunCommand }: PluginsPanelProp
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div 
-        className="w-[800px] max-w-[90vw] h-[600px] max-h-[80vh] bg-[#1e1e1e] border border-[#3c3c3c] rounded-lg shadow-2xl flex flex-col overflow-hidden"
+        className="w-200 max-w-[90vw] h-150 max-h-[80vh] bg-[#1e1e1e] border border-[#3c3c3c] rounded-lg shadow-2xl flex flex-col overflow-hidden"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-[#3c3c3c] bg-[#252526]">

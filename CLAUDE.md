@@ -1,4 +1,64 @@
 
+# Xterminal Development Guide
+
+A modern terminal emulator for Linux built with Tauri 2.x, React 19, and xterm.js.
+
+## Project Overview
+
+- **Frontend**: React 19 + Zustand for state management
+- **Backend**: Tauri 2.x with Rust for PTY management
+- **Terminal**: xterm.js with fit, search, and web-links addons
+- **UI**: TailwindCSS with react-resizable-panels for split panes
+
+## Key Architecture
+
+### State Management (Zustand Stores)
+- `paneStore`: Manages binary tree of panes/splits
+- `tabStore`: Manages terminal tabs
+- `sessionStore`: Tracks PTY sessions
+- `settingsStore`: Settings with auto-save to disk
+
+### PTY Communication
+- PTY sessions managed in Rust (`src-tauri/src/pty/session.rs`)
+- Events emitted via Tauri: `pty://{sessionId}/data` and `pty://{sessionId}/exit`
+- Frontend hook: `usePty.ts` handles spawning, writing, resizing
+
+### Settings Persistence
+- Settings saved to `~/.config/xterminal/settings.json`
+- Window state saved to `~/.config/xterminal/window-state.json`
+- Uses debounced auto-save (500ms)
+
+## Common Commands
+
+```bash
+# Development
+bun tauri:dev         # Run full app in dev mode
+bun dev               # Run frontend only
+bun test              # Run tests
+bun test:watch        # Run tests in watch mode
+
+# Production
+bun tauri:build       # Build production app
+```
+
+## Key Keyboard Shortcuts
+
+- `Alt+Shift+D` - Split pane vertically
+- `Alt+Shift+-` - Split pane horizontally
+- `Alt+Shift+W` - Close pane
+- `Alt+Arrows` - Navigate panes
+- `Ctrl+Shift+C/V` - Copy/Paste
+
+## Important Notes
+
+- react-resizable-panels v4.x uses `orientation` prop (not `direction`)
+- Pane tree is a binary tree: each branch has `first` and `second` children
+- Settings changes trigger debounced auto-save automatically
+
+---
+
+## Bun-Specific Guidelines
+
 Default to using Bun instead of Node.js.
 
 - Use `bun <file>` instead of `node <file>` or `ts-node <file>`

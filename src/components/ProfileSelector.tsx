@@ -70,7 +70,7 @@ export function ProfileSelector({ onSelectProfile, className }: ProfileSelectorP
         )}
       >
         <Terminal className="w-4 h-4" />
-        <span className="max-w-[120px] truncate">{activeProfile?.name || 'Default'}</span>
+        <span className="max-w-30 truncate">{activeProfile?.name || 'Default'}</span>
         <ChevronDown className={cn(
           'w-3 h-3 transition-transform',
           isOpen && 'rotate-180'

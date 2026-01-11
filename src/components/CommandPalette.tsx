@@ -68,7 +68,7 @@ export function CommandPalette({ isOpen, onClose, commands }: CommandPaletteProp
     const groups: Record<string, Command[]> = {};
     filteredCommands.forEach(cmd => {
       if (!groups[cmd.category]) groups[cmd.category] = [];
-      groups[cmd.category].push(cmd);
+      groups[cmd.category]!.push(cmd);
     });
     return groups;
   }, [filteredCommands]);
@@ -134,7 +134,7 @@ export function CommandPalette({ isOpen, onClose, commands }: CommandPaletteProp
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] bg-black/50 backdrop-blur-sm">
       <div 
-        className="w-[600px] max-w-[90vw] bg-[#1e1e1e] border border-[#3c3c3c] rounded-lg shadow-2xl overflow-hidden"
+        className="w-150 max-w-[90vw] bg-[#1e1e1e] border border-[#3c3c3c] rounded-lg shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Search input */}
@@ -158,7 +158,7 @@ export function CommandPalette({ isOpen, onClose, commands }: CommandPaletteProp
         </div>
 
         {/* Command list */}
-        <div ref={listRef} className="max-h-[400px] overflow-y-auto">
+        <div ref={listRef} className="max-h-100 overflow-y-auto">
           {filteredCommands.length === 0 ? (
             <div className="px-4 py-8 text-center text-gray-500">
               No commands found

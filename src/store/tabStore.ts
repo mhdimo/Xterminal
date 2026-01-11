@@ -22,6 +22,8 @@ interface TabState {
   moveTab: (fromIndex: number, toIndex: number) => void;
   getActiveTab: () => Tab | null;
   getTabByPaneId: (paneId: string) => Tab | null;
+  updateTabRootPaneId: (tabId: string, newRootPaneId: string) => void;
+  getTabByRootPaneId: (rootPaneId: string) => Tab | null;
 }
 
 export const useTabStore = create<TabState>((set, get) => ({
@@ -167,5 +169,16 @@ export const useTabStore = create<TabState>((set, get) => ({
   getTabByPaneId: (paneId) => {
     const { tabs } = get();
     return tabs.find((t) => t.rootPaneId === paneId) || null;
+  },
+
+  updateTabRootPaneId: (tabId, newRootPaneId) => {
+    set((state) => ({
+      tabs: state.tabs.map((t) => (t.id === tabId ? { ...t, rootPaneId: newRootPaneId } : t)),
+    }));
+  },
+
+  getTabByRootPaneId: (rootPaneId) => {
+    const { tabs } = get();
+    return tabs.find((t) => t.rootPaneId === rootPaneId) || null;
   },
 }));

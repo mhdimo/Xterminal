@@ -33,7 +33,7 @@ export function APITester() {
           Method
         </Label>
         <Select name="method" defaultValue="GET">
-          <SelectTrigger className="w-[100px]" id="method">
+          <SelectTrigger className="w-25" id="method">
             <SelectValue placeholder="Method" />
           </SelectTrigger>
           <SelectContent align="start">
@@ -57,7 +57,7 @@ export function APITester() {
         id="response"
         readOnly
         placeholder="Response will appear here..."
-        className="min-h-[140px] font-mono resize-y"
+        className="min-h-35 font-mono resize-y"
       />
     </div>
   );

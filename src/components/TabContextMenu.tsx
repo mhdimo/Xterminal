@@ -87,7 +87,7 @@ export function TabContextMenu({
   return (
     <div
       ref={menuRef}
-      className="fixed z-50 bg-[#252526] border border-[#3c3c3c] rounded-lg shadow-xl py-1 min-w-[180px]"
+      className="fixed z-50 bg-[#252526] border border-[#3c3c3c] rounded-lg shadow-xl py-1 min-w-45"
       style={{ left: adjustedX, top: adjustedY }}
     >
       {/* Tab title header */}
@@ -132,7 +132,7 @@ export function TabContextMenu({
           </button>
 
           {showColorPicker && (
-            <div className="absolute left-full top-0 ml-1 bg-[#252526] border border-[#3c3c3c] rounded-lg shadow-xl py-2 min-w-[140px]">
+            <div className="absolute left-full top-0 ml-1 bg-[#252526] border border-[#3c3c3c] rounded-lg shadow-xl py-2 min-w-35">
               {TAB_COLORS.map(({ name, value }) => (
                 <button
                   key={name}

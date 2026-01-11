@@ -79,7 +79,6 @@ export function usePty(sessionId: string | null, options: UsePtyOptions = {}): U
   // Write data to the PTY
   const write = useCallback(async (data: string) => {
     const currentSessionId = sessionIdRef.current;
-    console.log('[usePty] write called, sessionId:', currentSessionId, 'data length:', data.length);
     if (!currentSessionId) {
       console.warn('[usePty] No session ID provided for write');
       return;
@@ -90,7 +89,6 @@ export function usePty(sessionId: string | null, options: UsePtyOptions = {}): U
         sessionId: currentSessionId,
         data,
       });
-      console.log('[usePty] Write successful');
     } catch (error) {
       console.error('[usePty] Failed to write to PTY:', error);
       throw error;
@@ -143,25 +141,21 @@ export function usePty(sessionId: string | null, options: UsePtyOptions = {}): U
   // Set up event listeners for PTY data and exit events
   useEffect(() => {
     if (!sessionId) {
-      console.log('[usePty] No sessionId, skipping event listeners');
       return;
     }
 
-    console.log('[usePty] Setting up event listeners for session:', sessionId);
     let isMounted = true;
 
     const unlistenPromises = [
       // Listen for PTY output events
       listen<string>(`pty://${sessionId}/data`, (event) => {
         if (!isMounted) return;
-        console.log('[usePty] Received data event, payload length:', event.payload?.length);
         onDataRef.current?.(event.payload);
       }),
 
       // Listen for exit events
       listen<{ exitCode: number }>(`pty://${sessionId}/exit`, (event) => {
         if (!isMounted) return;
-        console.log('[usePty] Received exit event:', event.payload);
         const { exitCode } = event.payload;
         isConnectedRef.current = false;
 
@@ -177,7 +171,6 @@ export function usePty(sessionId: string | null, options: UsePtyOptions = {}): U
 
     // Cleanup listeners on unmount
     return () => {
-      console.log('[usePty] Cleaning up event listeners for session:', sessionId);
       isMounted = false;
       Promise.all(unlistenPromises).then((unlisteners) => {
         unlisteners.forEach((unlisten) => unlisten());

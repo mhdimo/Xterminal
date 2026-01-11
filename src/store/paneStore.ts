@@ -9,10 +9,11 @@ interface PaneState {
   nodes: Map<string, PaneNode>;
   rootId: string | null;
   broadcastMode: boolean;
+  activePaneId: string | null;
 
   // Actions
   createRootPane: (paneId?: string) => string;
-  splitPane: (paneId: string, direction: SplitType) => string;
+  splitPane: (paneId: string, direction: SplitType) => { newPaneId: string; containerId: string };
   closePane: (paneId: string) => void;
   resizePane: (nodeId: string, size: number) => void;
   setSessionId: (paneId: string, sessionId: string) => void;
@@ -21,12 +22,14 @@ interface PaneState {
   getNode: (nodeId: string) => PaneNode | undefined;
   getAllLeafPanes: () => Pane[];
   toggleBroadcastMode: () => void;
+  setActivePaneId: (paneId: string | null) => void;
 }
 
 export const usePaneStore = create<PaneState>((set, get) => ({
   nodes: new Map(),
   rootId: null,
   broadcastMode: false,
+  activePaneId: null,
 
   createRootPane: (existingId) => {
     const id = existingId || uuidv4();
@@ -50,7 +53,8 @@ export const usePaneStore = create<PaneState>((set, get) => ({
     const existingPane = state.nodes.get(paneId);
 
     if (!existingPane || existingPane.type !== 'leaf') {
-      throw new Error('Cannot split non-leaf node');
+      console.error('[paneStore] Cannot split non-leaf node:', paneId);
+      return { newPaneId: '', containerId: '' };
     }
 
     const newPaneId = uuidv4();
@@ -76,39 +80,127 @@ export const usePaneStore = create<PaneState>((set, get) => ({
       nodes.set(containerId, container);
       nodes.set(newPaneId, newPane);
 
-      // Update parent reference if this wasn't the root
-      if (state.rootId !== paneId) {
-        // Find and update parent node
-        for (const [key, node] of state.nodes) {
-          if (node.type === 'branch') {
-            if (node.first === paneId) {
-              nodes.set(key, { ...node, first: containerId });
-              break;
-            }
-            if (node.second === paneId) {
-              nodes.set(key, { ...node, second: containerId });
-              break;
-            }
+      // Find and update parent node if any
+      let foundParent = false;
+      for (const [key, node] of state.nodes) {
+        if (node.type === 'branch') {
+          if (node.first === paneId) {
+            nodes.set(key, { ...node, first: containerId });
+            foundParent = true;
+            break;
+          }
+          if (node.second === paneId) {
+            nodes.set(key, { ...node, second: containerId });
+            foundParent = true;
+            break;
           }
         }
-      } else {
-        // This was the root, update root reference
+      }
+
+      // If no parent was found, this pane was a root - update global rootId if it matches
+      if (!foundParent && state.rootId === paneId) {
         return { nodes, rootId: containerId };
       }
 
       return { nodes };
     });
 
-    return newPaneId;
+    // Return both IDs so caller can update tab's rootPaneId if needed
+    return { newPaneId, containerId };
   },
 
   closePane: (paneId) => {
-    // For the first milestone, we'll only handle single-pane scenarios
-    // Full implementation would handle tree rebalancing
-    set((state) => {
-      const nodes = new Map(state.nodes);
+    const state = get();
+    const nodeToClose = state.nodes.get(paneId);
+    
+    if (!nodeToClose || nodeToClose.type !== 'leaf') {
+      console.error('[paneStore.closePane] Cannot close non-leaf node:', paneId);
+      return;
+    }
+    
+    // Find the parent container of this pane
+    let parentId: string | null = null;
+    let siblingId: string | null = null;
+    let isFirst = false;
+    
+    for (const [id, node] of state.nodes) {
+      if (node.type === 'branch') {
+        if (node.first === paneId) {
+          parentId = id;
+          siblingId = node.second;
+          isFirst = true;
+          break;
+        }
+        if (node.second === paneId) {
+          parentId = id;
+          siblingId = node.first;
+          isFirst = false;
+          break;
+        }
+      }
+    }
+    
+    set((innerState) => {
+      const nodes = new Map(innerState.nodes);
+      
+      // Remove the pane
       nodes.delete(paneId);
-      return { nodes };
+      
+      // If there's no parent, this was the only pane (root) - just remove it
+      if (!parentId || !siblingId) {
+        return { nodes, rootId: null, activePaneId: null };
+      }
+      
+      // Get the sibling node
+      const siblingNode = nodes.get(siblingId);
+      if (!siblingNode) {
+        return { nodes };
+      }
+      
+      // Find grandparent (parent of the parent container)
+      let grandparentId: string | null = null;
+      let parentIsFirst = false;
+      
+      for (const [id, node] of innerState.nodes) {
+        if (node.type === 'branch') {
+          if (node.first === parentId) {
+            grandparentId = id;
+            parentIsFirst = true;
+            break;
+          }
+          if (node.second === parentId) {
+            grandparentId = id;
+            parentIsFirst = false;
+            break;
+          }
+        }
+      }
+      
+      // Remove the parent container
+      nodes.delete(parentId);
+      
+      // Update references
+      if (grandparentId) {
+        // Update grandparent to point to sibling
+        const grandparent = nodes.get(grandparentId);
+        if (grandparent && grandparent.type === 'branch') {
+          if (parentIsFirst) {
+            nodes.set(grandparentId, { ...grandparent, first: siblingId });
+          } else {
+            nodes.set(grandparentId, { ...grandparent, second: siblingId });
+          }
+        }
+      }
+      
+      // Update rootId if parent was the root
+      const newRootId = innerState.rootId === parentId ? siblingId : innerState.rootId;
+      
+      // Set sibling as active if we're closing the active pane
+      const newActivePaneId = innerState.activePaneId === paneId 
+        ? (siblingNode.type === 'leaf' ? siblingId : get().findLeafPaneId(siblingId))
+        : innerState.activePaneId;
+      
+      return { nodes, rootId: newRootId, activePaneId: newActivePaneId };
     });
   },
 
@@ -170,5 +262,9 @@ export const usePaneStore = create<PaneState>((set, get) => ({
 
   toggleBroadcastMode: () => {
     set((state) => ({ broadcastMode: !state.broadcastMode }));
+  },
+
+  setActivePaneId: (paneId) => {
+    set({ activePaneId: paneId });
   },
 }));

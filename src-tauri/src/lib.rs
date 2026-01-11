@@ -3,7 +3,7 @@
 mod commands;
 mod pty;
 
-use commands::{spawn_pty, pty_write, pty_resize, pty_close, get_hostname};
+use commands::{spawn_pty, pty_write, pty_resize, pty_close, get_hostname, load_settings, save_settings, load_window_state, save_window_state};
 use pty::PtyManager;
 use tauri::Manager;
 
@@ -11,6 +11,7 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             // Initialize PTY manager
             let pty_manager = PtyManager::new(app.handle().clone());
@@ -35,6 +36,10 @@ pub fn run() {
             pty_resize,
             pty_close,
             get_hostname,
+            load_settings,
+            save_settings,
+            load_window_state,
+            save_window_state,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

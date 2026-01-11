@@ -3,6 +3,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow, type Window as TauriWindow, PhysicalPosition, PhysicalSize } from '@tauri-apps/api/window';
 import { TitleBar } from './components/TitleBar';
 import { PaneContainer } from './components/terminal/PaneContainer';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -11,9 +12,18 @@ import { SearchBar } from './components/SearchBar';
 import { useTabStore, usePaneStore, useSettingsStore } from './store';
 import '../styles/globals.css';
 
+// Window state interface
+interface WindowState {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  isMaximized: boolean;
+}
+
 export function App() {
-  const { tabs, activeTabId, addTab, closeTab, setActiveTab, duplicateTab, clearBellOnActive } = useTabStore();
-  const { createRootPane, splitPane, findLeafPaneId, broadcastMode, toggleBroadcastMode } = usePaneStore();
+  const { tabs, activeTabId, addTab, closeTab, setActiveTab, duplicateTab, clearBellOnActive, updateTabRootPaneId, getTabByRootPaneId } = useTabStore();
+  const { createRootPane, splitPane, closePane, findLeafPaneId, broadcastMode, toggleBroadcastMode, activePaneId, setActivePaneId, getAllLeafPanes, getNode, nodes } = usePaneStore();
   const { loadSettings, settings, updateSettings } = useSettingsStore();
   // Use ref to prevent double-init in StrictMode
   const isInitializedRef = useRef(false);
@@ -21,6 +31,7 @@ export function App() {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [hostname, setHostname] = useState<string>('');
+  const windowRef = useRef<TauriWindow | null>(null);
   
   // Search API ref (set by active terminal)
   const searchApiRef = useRef<{
@@ -36,12 +47,84 @@ export function App() {
     }
   }, [activeTabId, clearBellOnActive]);
 
-  // Initialize settings
+  // Save window state (debounced)
+  const saveWindowStateRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveWindowState = useCallback(async () => {
+    const window = windowRef.current;
+    if (!window) return;
+    
+    // Clear any pending save
+    if (saveWindowStateRef.current) {
+      clearTimeout(saveWindowStateRef.current);
+    }
+    
+    // Debounce saves to avoid too many writes during resize
+    saveWindowStateRef.current = setTimeout(async () => {
+      try {
+        const position = await window.outerPosition();
+        const size = await window.outerSize();
+        const isMaximized = await window.isMaximized();
+        
+        const state: WindowState = {
+          x: position.x,
+          y: position.y,
+          width: size.width,
+          height: size.height,
+          isMaximized,
+        };
+        
+        await invoke('save_window_state', { state });
+      } catch (err) {
+        console.error('Failed to save window state:', err);
+      }
+    }, 500);
+  }, []);
+
+  // Initialize settings and window state
   useEffect(() => {
     loadSettings();
     // Get hostname for tab titles
     invoke<string>('get_hostname').then(setHostname).catch(() => setHostname('Terminal'));
-  }, [loadSettings]);
+    
+    // Load window state and apply it
+    const initWindow = async () => {
+      try {
+        const window = getCurrentWindow();
+        windowRef.current = window;
+        
+        const savedState = await invoke<WindowState | null>('load_window_state');
+        if (savedState) {
+          // Apply saved position and size
+          if (!savedState.isMaximized) {
+            await window.setPosition(new PhysicalPosition(savedState.x, savedState.y));
+            await window.setSize(new PhysicalSize(savedState.width, savedState.height));
+          }
+          if (savedState.isMaximized) {
+            await window.maximize();
+          }
+        }
+        
+        // Listen for window events to save state
+        const unlistenMove = await window.onMoved(() => saveWindowState());
+        const unlistenResize = await window.onResized(() => saveWindowState());
+        const unlistenClose = await window.onCloseRequested(async () => {
+          await saveWindowState();
+          // Allow the window to close after saving
+          await window.close();
+        });
+        
+        return () => {
+          unlistenMove();
+          unlistenResize();
+          unlistenClose();
+        };
+      } catch (err) {
+        console.error('Failed to initialize window state:', err);
+      }
+    };
+    
+    initWindow();
+  }, [loadSettings, saveWindowState]);
 
   // Create initial tab on mount
   useEffect(() => {
@@ -52,7 +135,9 @@ export function App() {
     // Create tab which generates a rootPaneId, then create the pane
     const { rootPaneId } = addTab(undefined, undefined, hostname);
     createRootPane(rootPaneId);
-  }, [addTab, createRootPane, hostname]);
+    // Set the initial pane as active
+    setActivePaneId(rootPaneId);
+  }, [addTab, createRootPane, hostname, setActivePaneId]);
 
   // Keyboard shortcuts - Windows Terminal inspired
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -65,6 +150,7 @@ export function App() {
       e.preventDefault();
       const { rootPaneId } = addTab(undefined, undefined, hostname || 'Terminal');
       createRootPane(rootPaneId);
+      setActivePaneId(rootPaneId);
     }
 
     // Ctrl+W - Close Tab
@@ -95,34 +181,138 @@ export function App() {
       }
     }
 
+    // Helper function to handle split pane and update tab's rootPaneId if needed
+    const handleSplitPane = (direction: 'horizontal' | 'vertical') => {
+      const activeTab = tabs.find(t => t.id === activeTabId);
+      if (!activeTab) {
+        return;
+      }
+      
+      const activeRootPaneId = activeTab.rootPaneId;
+      
+      // Use the focused pane if available, otherwise fall back to finding the first leaf
+      const currentActivePaneId = usePaneStore.getState().activePaneId;
+      const paneToSplit = currentActivePaneId || findLeafPaneId(activeRootPaneId);
+      
+      if (!paneToSplit) {
+        return;
+      }
+      
+      const result = splitPane(paneToSplit, direction);
+      if (!result.containerId) {
+        return;
+      }
+      
+      // If the pane we split was the tab's root pane, update the tab's rootPaneId
+      if (paneToSplit === activeRootPaneId) {
+        updateTabRootPaneId(activeTab.id, result.containerId);
+      }
+      
+      // Set the new pane as active
+      setActivePaneId(result.newPaneId);
+    };
+
+    // Helper function to close the active pane
+    const handleClosePane = () => {
+      const currentActivePaneId = usePaneStore.getState().activePaneId;
+      if (!currentActivePaneId) return;
+      
+      const activeTab = tabs.find(t => t.id === activeTabId);
+      if (!activeTab) return;
+      
+      // Get all leaf panes for this tab
+      const allLeaves = getAllLeafPanes();
+      const tabLeaves = allLeaves.filter(leaf => {
+        // Check if this leaf belongs to current tab by traversing up
+        let nodeId: string | null = leaf.id;
+        while (nodeId) {
+          if (nodeId === activeTab.rootPaneId) return true;
+          // Find parent
+          let parentId: string | null = null;
+          for (const [id, node] of usePaneStore.getState().nodes) {
+            if (node.type === 'branch' && (node.first === nodeId || node.second === nodeId)) {
+              parentId = id;
+              break;
+            }
+          }
+          nodeId = parentId;
+        }
+        return false;
+      });
+      
+      // Don't close if it's the only pane in the tab
+      if (tabLeaves.length <= 1) {
+        // Close the tab instead
+        closeTab(activeTab.id);
+        return;
+      }
+      
+      // Close the PTY session first
+      const node = getNode(currentActivePaneId);
+      if (node?.type === 'leaf' && node.sessionId) {
+        invoke('pty_close', { sessionId: node.sessionId }).catch(() => {});
+      }
+      
+      // Close the pane
+      closePane(currentActivePaneId);
+      
+      // Update tab rootPaneId if needed (closePane handles this internally)
+      const newRootId = usePaneStore.getState().rootId;
+      if (newRootId && newRootId !== activeTab.rootPaneId) {
+        updateTabRootPaneId(activeTab.id, newRootId);
+      }
+    };
+
+    // Helper function to navigate between panes
+    const navigatePane = (direction: 'up' | 'down' | 'left' | 'right') => {
+      const currentActivePaneId = usePaneStore.getState().activePaneId;
+      if (!currentActivePaneId) return;
+      
+      const allLeaves = getAllLeafPanes();
+      if (allLeaves.length <= 1) return;
+      
+      // Simple navigation: cycle through panes
+      const currentIndex = allLeaves.findIndex(p => p.id === currentActivePaneId);
+      if (currentIndex < 0) return;
+      
+      let nextIndex: number;
+      if (direction === 'left' || direction === 'up') {
+        nextIndex = (currentIndex - 1 + allLeaves.length) % allLeaves.length;
+      } else {
+        nextIndex = (currentIndex + 1) % allLeaves.length;
+      }
+      
+      const nextPane = allLeaves[nextIndex];
+      if (nextPane) {
+        setActivePaneId(nextPane.id);
+      }
+    };
+
+    // Alt+Shift+W - Close active pane
     // Alt+Shift+D - Split pane (auto direction)
     // Alt+Shift+- - Split horizontal
     // Alt+Shift++ - Split vertical
     // Alt+Shift+B - Toggle broadcast input
     if (isAlt && isShift) {
-      const activeTab = tabs.find(t => t.id === activeTabId);
-      const activeRootPaneId = activeTab?.rootPaneId;
-      
+      if (e.key === 'W' || e.key === 'w') {
+        e.preventDefault();
+        e.stopPropagation();
+        handleClosePane();
+      }
       if (e.key === 'D' || e.key === 'd') {
         e.preventDefault();
-        if (activeRootPaneId) {
-          const leafId = findLeafPaneId(activeRootPaneId);
-          if (leafId) splitPane(leafId, 'vertical');
-        }
+        e.stopPropagation();
+        handleSplitPane('vertical');
       }
-      if (e.key === '-' || e.key === '_') {
+      if (e.key === '-' || e.key === '_' || e.code === 'Minus') {
         e.preventDefault();
-        if (activeRootPaneId) {
-          const leafId = findLeafPaneId(activeRootPaneId);
-          if (leafId) splitPane(leafId, 'horizontal');
-        }
+        e.stopPropagation();
+        handleSplitPane('horizontal');
       }
-      if (e.key === '=' || e.key === '+') {
+      if (e.key === '=' || e.key === '+' || e.code === 'Equal') {
         e.preventDefault();
-        if (activeRootPaneId) {
-          const leafId = findLeafPaneId(activeRootPaneId);
-          if (leafId) splitPane(leafId, 'vertical');
-        }
+        e.stopPropagation();
+        handleSplitPane('vertical');
       }
       if (e.key === 'B' || e.key === 'b') {
         e.preventDefault();
@@ -130,11 +320,32 @@ export function App() {
       }
     }
 
+    // Alt+Arrow keys - Navigate between panes
+    if (isAlt && !isShift && !isCtrl) {
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        navigatePane('up');
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        navigatePane('down');
+      }
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        navigatePane('left');
+      }
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        navigatePane('right');
+      }
+    }
+
     // Ctrl+Tab / Ctrl+Shift+Tab - Switch tabs
     if (isCtrl && e.key === 'Tab') {
       e.preventDefault();
+      e.stopPropagation();
       const currentIndex = tabs.findIndex(t => t.id === activeTabId);
-      if (tabs.length > 1) {
+      if (tabs.length > 1 && currentIndex >= 0) {
         const nextIndex = isShift
           ? (currentIndex - 1 + tabs.length) % tabs.length
           : (currentIndex + 1) % tabs.length;
@@ -152,14 +363,16 @@ export function App() {
     }
 
     // Ctrl+Shift+P - Open Command Palette
-    if (isCtrl && isShift && e.key === 'P') {
+    if (isCtrl && isShift && (e.key === 'P' || e.key === 'p')) {
       e.preventDefault();
+      e.stopPropagation();
       setIsCommandPaletteOpen(true);
     }
 
     // Ctrl+Shift+F - Open Search in Terminal
-    if (isCtrl && isShift && e.key === 'F') {
+    if (isCtrl && isShift && (e.key === 'F' || e.key === 'f')) {
       e.preventDefault();
+      e.stopPropagation();
       setIsSearchOpen(true);
     }
 
@@ -189,7 +402,19 @@ export function App() {
         }
       }
     }
-  }, [addTab, createRootPane, closeTab, activeTabId, splitPane, tabs, setActiveTab, isSettingsOpen, isCommandPaletteOpen, isSearchOpen, findLeafPaneId, settings.fontSize, updateSettings, toggleBroadcastMode, hostname]);
+  }, [addTab, createRootPane, closeTab, activeTabId, splitPane, tabs, setActiveTab, isSettingsOpen, isCommandPaletteOpen, isSearchOpen, findLeafPaneId, settings.fontSize, updateSettings, toggleBroadcastMode, hostname, updateTabRootPaneId]);
+
+  // Helper for command palette split actions
+  const handleCommandSplit = (direction: 'horizontal' | 'vertical') => {
+    const activeTab = tabs.find(t => t.id === activeTabId);
+    if (!activeTab) return;
+    const leafId = findLeafPaneId(activeTab.rootPaneId);
+    if (!leafId) return;
+    const result = splitPane(leafId, direction);
+    if (result.containerId && leafId === activeTab.rootPaneId) {
+      updateTabRootPaneId(activeTab.id, result.containerId);
+    }
+  };
 
   // Command Palette commands
   const commands: Command[] = [
@@ -209,14 +434,8 @@ export function App() {
     }},
     
     // Pane commands
-    { id: 'split-horizontal', name: 'Split Pane Horizontally', category: 'pane', shortcut: 'Alt+Shift+-', action: () => {
-      const activeTab = tabs.find(t => t.id === activeTabId);
-      if (activeTab) { const leafId = findLeafPaneId(activeTab.rootPaneId); if (leafId) splitPane(leafId, 'horizontal'); }
-    }},
-    { id: 'split-vertical', name: 'Split Pane Vertically', category: 'pane', shortcut: 'Alt+Shift++', action: () => {
-      const activeTab = tabs.find(t => t.id === activeTabId);
-      if (activeTab) { const leafId = findLeafPaneId(activeTab.rootPaneId); if (leafId) splitPane(leafId, 'vertical'); }
-    }},
+    { id: 'split-horizontal', name: 'Split Pane Horizontally', category: 'pane', shortcut: 'Alt+Shift+-', action: () => handleCommandSplit('horizontal') },
+    { id: 'split-vertical', name: 'Split Pane Vertically', category: 'pane', shortcut: 'Alt+Shift++', action: () => handleCommandSplit('vertical') },
     { id: 'broadcast-toggle', name: `${broadcastMode ? 'Disable' : 'Enable'} Broadcast Input`, category: 'pane', shortcut: 'Alt+Shift+B', description: 'Send input to all panes', action: () => toggleBroadcastMode() },
     { id: 'move-pane-to-tab', name: 'Move Pane to New Tab', category: 'pane', description: 'Open current pane in a new tab', action: () => {
       // Create a new tab - for single pane, this effectively moves it

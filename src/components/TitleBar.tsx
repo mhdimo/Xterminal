@@ -249,7 +249,7 @@ export function TitleBar({ onSettingsClick }: TitleBarProps) {
 
   return (
     <div 
-      className="flex items-center h-[36px] bg-[#202020] select-none rounded-t-lg"
+      className="flex items-center h-9 bg-[#202020] select-none rounded-t-lg"
       onDoubleClick={handleDoubleClick}
     >
       {/* Tabs area */}
@@ -279,7 +279,7 @@ export function TitleBar({ onSettingsClick }: TitleBarProps) {
               }}
               onContextMenu={(e) => handleContextMenu(e, tab.id)}
               className={cn(
-                'group flex items-center gap-2 px-3 h-[30px] min-w-[100px] max-w-[180px] cursor-pointer relative',
+                'group flex items-center gap-2 px-3 h-7.5 min-w-25 max-w-45 cursor-pointer relative',
                 'rounded-t-md',
                 tab.id === activeTabId 
                   ? 'bg-[#0c0c0c]' 
@@ -330,7 +330,7 @@ export function TitleBar({ onSettingsClick }: TitleBarProps) {
                 className={cn(
                   'flex items-center justify-center w-4 h-4 rounded-sm',
                   'hover:bg-[#505050] transition-all duration-150',
-                  tab.id === activeTabId ? 'opacity-70 hover:opacity-100' : 'opacity-0 group-hover:opacity-70 hover:!opacity-100'
+                  tab.id === activeTabId ? 'opacity-70 hover:opacity-100' : 'opacity-0 group-hover:opacity-70 hover:opacity-100!'
                 )}
               >
                 <X className="w-3 h-3 text-[#909090] hover:text-white" />
@@ -401,7 +401,7 @@ export function TitleBar({ onSettingsClick }: TitleBarProps) {
         {/* Menu dropdown button */}
         <button
           onClick={onSettingsClick}
-          className="flex items-center justify-center h-full w-[46px] hover:bg-[#383838] transition-colors"
+          className="flex items-center justify-center h-full w-11.5 hover:bg-[#383838] transition-colors"
           title="Menu (Ctrl+,)"
         >
           <ChevronDown className="w-3 h-3 text-[#808080]" />
@@ -413,10 +413,10 @@ export function TitleBar({ onSettingsClick }: TitleBarProps) {
             {/* Minimize */}
             <button
               onClick={handleMinimize}
-              className="flex items-center justify-center h-full w-[46px] hover:bg-[#383838] transition-colors"
+              className="flex items-center justify-center h-full w-11.5 hover:bg-[#383838] transition-colors"
               title="Minimize"
             >
-              <svg className="w-[10px] h-[10px]" viewBox="0 0 10 10" fill="none">
+              <svg className="w-2.5 h-2.5" viewBox="0 0 10 10" fill="none">
                 <line x1="0" y1="5" x2="10" y2="5" stroke="#cccccc" strokeWidth="1" />
               </svg>
             </button>
@@ -424,16 +424,16 @@ export function TitleBar({ onSettingsClick }: TitleBarProps) {
             {/* Maximize/Restore */}
             <button
               onClick={handleMaximize}
-              className="flex items-center justify-center h-full w-[46px] hover:bg-[#383838] transition-colors"
+              className="flex items-center justify-center h-full w-11.5 hover:bg-[#383838] transition-colors"
               title={isMaximized ? 'Restore Down' : 'Maximize'}
             >
               {isMaximized ? (
-                <svg className="w-[10px] h-[10px]" viewBox="0 0 10 10" fill="none">
+                <svg className="w-2.5 h-2.5" viewBox="0 0 10 10" fill="none">
                   <rect x="2" y="0" width="7" height="7" stroke="#cccccc" strokeWidth="1" fill="none" />
                   <rect x="0" y="2" width="7" height="7" stroke="#cccccc" strokeWidth="1" fill="#202020" />
                 </svg>
               ) : (
-                <svg className="w-[10px] h-[10px]" viewBox="0 0 10 10" fill="none">
+                <svg className="w-2.5 h-2.5" viewBox="0 0 10 10" fill="none">
                   <rect x="0" y="0" width="10" height="10" stroke="#cccccc" strokeWidth="1" />
                 </svg>
               )}
@@ -442,10 +442,10 @@ export function TitleBar({ onSettingsClick }: TitleBarProps) {
             {/* Close */}
             <button
               onClick={handleClose}
-              className="flex items-center justify-center h-full w-[46px] hover:bg-[#c42b1c] transition-colors group"
+              className="flex items-center justify-center h-full w-11.5 hover:bg-[#c42b1c] transition-colors group"
               title="Close"
             >
-              <svg className="w-[10px] h-[10px]" viewBox="0 0 10 10" fill="none">
+              <svg className="w-2.5 h-2.5" viewBox="0 0 10 10" fill="none">
                 <line x1="0" y1="0" x2="10" y2="10" stroke="#cccccc" strokeWidth="1" />
                 <line x1="10" y1="0" x2="0" y2="10" stroke="#cccccc" strokeWidth="1" />
               </svg>
@@ -457,9 +457,11 @@ export function TitleBar({ onSettingsClick }: TitleBarProps) {
       {/* Tab Context Menu */}
       {contextMenu && (
         <TabContextMenu
+          isOpen={true}
           x={contextMenu.x}
           y={contextMenu.y}
           tabId={contextMenu.tabId}
+          tabTitle={tabs.find(t => t.id === contextMenu.tabId)?.title || 'Terminal'}
           onClose={() => setContextMenu(null)}
           onRename={() => {
             startEditing(contextMenu.tabId);
@@ -467,6 +469,14 @@ export function TitleBar({ onSettingsClick }: TitleBarProps) {
           }}
           onDuplicate={() => {
             handleDuplicateTab(contextMenu.tabId);
+            setContextMenu(null);
+          }}
+          onSetColor={(tabId, color) => {
+            setTabColor(tabId, color);
+            setContextMenu(null);
+          }}
+          onClose_Tab={(tabId) => {
+            handleCloseTab(tabId);
             setContextMenu(null);
           }}
         />

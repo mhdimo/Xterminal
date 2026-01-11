@@ -103,16 +103,69 @@ export function Terminal({ paneId, sessionId, onTitleChange, onSearchReady }: Te
     }
   }, []);
 
+  // Shell exit state
+  const [shellExited, setShellExited] = useState<{ exited: boolean; exitCode: number | null }>({
+    exited: false,
+    exitCode: null,
+  });
+
   // PTY hook
   const { write, resize, spawn } = usePty(sessionId, {
     onData: writeToTerminal,
     onExit: (exitCode) => {
-      console.log(`[Terminal] Session exited with code ${exitCode}`);
+      if (!mountedRef.current) return;
+      setShellExited({ exited: true, exitCode });
       if (onTitleChange) {
-        onTitleChange('Terminal (exited)');
+        const status = exitCode === 0 ? 'exited' : `failed (${exitCode})`;
+        onTitleChange(`Terminal (${status})`);
+      }
+      // Write exit message to terminal
+      const xterm = xtermRef.current;
+      if (xterm && rendererReadyRef.current) {
+        xterm.write('\r\n\r\n');
+        if (exitCode === 0) {
+          xterm.write('\x1b[32m[Process exited]\x1b[0m');
+        } else {
+          xterm.write(`\x1b[31m[Process exited with code ${exitCode}]\x1b[0m`);
+        }
+        xterm.write('\r\n');
       }
     },
   });
+
+  // Restart the shell
+  const restartShell = useCallback(async () => {
+    if (!mountedRef.current) return;
+    const xterm = xtermRef.current;
+    const fitAddon = fitAddonRef.current;
+    
+    if (!xterm || !fitAddon) return;
+    
+    // Clear the terminal
+    xterm.clear();
+    xterm.write('\x1b[2J\x1b[H'); // Clear screen and move cursor to home
+    
+    // Reset exit state
+    setShellExited({ exited: false, exitCode: null });
+    hasSpawnedRef.current = false;
+    
+    // Spawn a new shell
+    try {
+      const shell = profile?.commandline || '';
+      const { cols, rows } = fitAddon.proposeDimensions() || { cols: 80, rows: 24 };
+      const sessionInfo = await spawn(shell, cols, rows);
+      
+      // Update pane with new session
+      setPaneSessionId(paneId, sessionInfo.id);
+      
+      if (onTitleChange) {
+        onTitleChange(sessionInfo.shell);
+      }
+    } catch (error) {
+      console.error('[Terminal] Failed to restart shell:', error);
+      xterm.write(`\x1b[31mFailed to start shell: ${error}\x1b[0m\r\n`);
+    }
+  }, [paneId, profile, spawn, setPaneSessionId, onTitleChange]);
 
   // Initialize xterm.js
   useEffect(() => {
@@ -188,6 +241,58 @@ export function Terminal({ paneId, sessionId, onTitleChange, onSearchReady }: Te
         scrollback: settings.scrollbackSize || 10000,
         allowProposedApi: true,
         convertEol: true,
+      });
+
+      // Add custom key handler for copy/paste shortcuts
+      xterm.attachCustomKeyEventHandler((event) => {
+        // Ctrl+Shift+C - Copy selection
+        if (event.ctrlKey && event.shiftKey && event.key === 'C') {
+          if (event.type === 'keydown') {
+            const selection = xterm.getSelection();
+            if (selection) {
+              // Copy to clipboard
+              (async () => {
+                try {
+                  const { writeText } = await import('@tauri-apps/plugin-clipboard-manager');
+                  await writeText(selection);
+                } catch {
+                  // Fallback to navigator clipboard
+                  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                    await navigator.clipboard.writeText(selection);
+                  }
+                }
+              })();
+            }
+          }
+          return false; // Prevent xterm from handling this
+        }
+        
+        // Ctrl+Shift+V - Paste
+        if (event.ctrlKey && event.shiftKey && event.key === 'V') {
+          if (event.type === 'keydown') {
+            (async () => {
+              try {
+                let text = '';
+                try {
+                  const { readText } = await import('@tauri-apps/plugin-clipboard-manager');
+                  text = await readText();
+                } catch {
+                  if (navigator.clipboard && typeof navigator.clipboard.readText === 'function') {
+                    text = await navigator.clipboard.readText();
+                  }
+                }
+                if (text) {
+                  write(text);
+                }
+              } catch (err) {
+                console.error('[Terminal] Failed to paste:', err);
+              }
+            })();
+          }
+          return false; // Prevent xterm from handling this
+        }
+        
+        return true; // Let xterm handle other keys
       });
 
       const fitAddon = new FitAddon();
@@ -417,13 +522,11 @@ export function Terminal({ paneId, sessionId, onTitleChange, onSearchReady }: Te
         const cols = xtermRef.current?.cols || 80;
         const rows = xtermRef.current?.rows || 24;
 
-        console.log('[Terminal] Spawning PTY:', shell, cols, rows);
 
         const sessionInfo = await spawn(shell, cols, rows);
         
         if (!mountedRef.current) return;
 
-        console.log('[Terminal] PTY spawned:', sessionInfo.id);
         
         setPaneSessionId(paneId, sessionInfo.id);
         sessionIdRef.current = sessionInfo.id;
@@ -470,11 +573,47 @@ export function Terminal({ paneId, sessionId, onTitleChange, onSearchReady }: Te
 
   return (
     <div 
-      className="h-full w-full overflow-hidden" 
+      className="h-full w-full overflow-hidden relative" 
       style={{ backgroundColor: colorScheme?.background || '#0c0c0c' }}
       onContextMenu={handleContextMenu}
     >
       <div ref={terminalRef} className="h-full w-full" />
+      
+      {/* Shell Exit Overlay */}
+      {shellExited.exited && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-zinc-800 rounded-lg p-6 shadow-xl border border-zinc-700 max-w-sm">
+            <div className="text-center">
+              {shellExited.exitCode === 0 ? (
+                <div className="text-green-400 text-lg font-semibold mb-2">
+                  Process Exited
+                </div>
+              ) : (
+                <div className="text-red-400 text-lg font-semibold mb-2">
+                  Process Failed (code {shellExited.exitCode})
+                </div>
+              )}
+              <p className="text-zinc-400 text-sm mb-4">
+                The shell process has ended.
+              </p>
+              <div className="flex gap-3 justify-center">
+                <button
+                  onClick={restartShell}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition-colors"
+                >
+                  Restart Shell
+                </button>
+                <button
+                  onClick={() => setShellExited({ exited: false, exitCode: null })}
+                  className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded-md text-sm font-medium transition-colors"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

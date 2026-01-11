@@ -2,6 +2,7 @@
 // Manages application settings including profiles, color schemes, and keybindings
 
 import { create } from 'zustand';
+import { invoke } from '@tauri-apps/api/core';
 import type { Settings, Profile, ColorScheme, KeyBinding, TerminalSettings, MouseAction } from '@/types';
 import { defaultSettings } from '@/types/settings';
 
@@ -36,6 +37,19 @@ interface SettingsState {
   resetKeyBindings: () => void;
 }
 
+// Debounce save to avoid excessive disk writes
+let saveTimeout: ReturnType<typeof setTimeout> | null = null;
+const debouncedSave = (settings: Settings) => {
+  if (saveTimeout) clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(async () => {
+    try {
+      await invoke('save_settings', { settings });
+    } catch (error) {
+      console.error('Failed to save settings:', error);
+    }
+  }, 500);
+};
+
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   settings: defaultSettings,
   isLoading: false,
@@ -43,9 +57,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   loadSettings: async () => {
     set({ isLoading: true });
     try {
-      // For now, use default settings
-      // TODO: Implement loading from Tauri API
-      set({ settings: defaultSettings, isLoading: false });
+      const savedSettings = await invoke<Settings | null>('load_settings');
+      if (savedSettings) {
+        // Merge with defaults to handle new settings added in updates
+        const mergedSettings = { ...defaultSettings, ...savedSettings };
+        set({ settings: mergedSettings, isLoading: false });
+      } else {
+        set({ settings: defaultSettings, isLoading: false });
+      }
     } catch (error) {
       console.error('Failed to load settings:', error);
       set({ settings: defaultSettings, isLoading: false });
@@ -55,83 +74,100 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   saveSettings: async () => {
     const { settings } = get();
     try {
-      // TODO: Implement saving via Tauri API
-      console.log('Saving settings:', settings);
+      await invoke('save_settings', { settings });
     } catch (error) {
       console.error('Failed to save settings:', error);
     }
   },
 
   updateSettings: (updates) => {
-    set((state) => ({
-      settings: { ...state.settings, ...updates },
-    }));
+    set((state) => {
+      const newSettings = { ...state.settings, ...updates };
+      debouncedSave(newSettings);
+      return { settings: newSettings };
+    });
   },
 
   addProfile: (profile) => {
-    set((state) => ({
-      settings: {
+    set((state) => {
+      const newSettings = {
         ...state.settings,
         profiles: [...state.settings.profiles, profile],
-      },
-    }));
+      };
+      debouncedSave(newSettings);
+      return { settings: newSettings };
+    });
   },
 
   updateProfile: (id, updates) => {
-    set((state) => ({
-      settings: {
+    set((state) => {
+      const newSettings = {
         ...state.settings,
         profiles: state.settings.profiles.map((p) =>
           p.id === id ? { ...p, ...updates } : p
         ),
-      },
-    }));
+      };
+      debouncedSave(newSettings);
+      return { settings: newSettings };
+    });
   },
 
   deleteProfile: (id) => {
-    set((state) => ({
-      settings: {
+    set((state) => {
+      const newSettings = {
         ...state.settings,
         profiles: state.settings.profiles.filter((p) => p.id !== id),
-      },
-    }));
+      };
+      debouncedSave(newSettings);
+      return { settings: newSettings };
+    });
   },
 
   addColorScheme: (scheme) => {
-    set((state) => ({
-      settings: {
+    set((state) => {
+      const newSettings = {
         ...state.settings,
         colorSchemes: [...state.settings.colorSchemes, scheme],
-      },
-    }));
+      };
+      debouncedSave(newSettings);
+      return { settings: newSettings };
+    });
   },
 
   updateColorScheme: (id, updates) => {
-    set((state) => ({
-      settings: {
+    set((state) => {
+      const newSettings = {
         ...state.settings,
         colorSchemes: state.settings.colorSchemes.map((s) =>
           s.id === id ? { ...s, ...updates } : s
         ),
-      },
-    }));
+      };
+      debouncedSave(newSettings);
+      return { settings: newSettings };
+    });
   },
 
   deleteColorScheme: (id) => {
-    set((state) => ({
-      settings: {
+    set((state) => {
+      const newSettings = {
         ...state.settings,
         colorSchemes: state.settings.colorSchemes.filter((s) => s.id !== id),
-      },
-    }));
+      };
+      debouncedSave(newSettings);
+      return { settings: newSettings };
+    });
   },
 
   setActiveProfile: (id) => {
-    set({ settings: { ...get().settings, activeProfileId: id } });
+    const newSettings = { ...get().settings, activeProfileId: id };
+    debouncedSave(newSettings);
+    set({ settings: newSettings });
   },
 
   setActiveColorScheme: (id) => {
-    set({ settings: { ...get().settings, activeColorSchemeId: id } });
+    const newSettings = { ...get().settings, activeColorSchemeId: id };
+    debouncedSave(newSettings);
+    set({ settings: newSettings });
   },
 
   getActiveProfile: () => {
@@ -146,55 +182,63 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   // Terminal settings
   updateTerminalSettings: (updates) => {
-    set((state) => ({
-      settings: {
+    set((state) => {
+      const newSettings = {
         ...state.settings,
         terminal: { ...state.settings.terminal, ...updates },
-      },
-    }));
+      };
+      debouncedSave(newSettings);
+      return { settings: newSettings };
+    });
   },
 
   // Keybinding management
   updateKeyBinding: (id, updates) => {
-    set((state) => ({
-      settings: {
+    set((state) => {
+      const newSettings = {
         ...state.settings,
         keyBindings: state.settings.keyBindings.map((kb) =>
           kb.id === id ? { ...kb, ...updates } : kb
         ),
-      },
-    }));
+      };
+      debouncedSave(newSettings);
+      return { settings: newSettings };
+    });
   },
 
   addKeyToBinding: (id, key) => {
-    set((state) => ({
-      settings: {
+    set((state) => {
+      const newSettings = {
         ...state.settings,
         keyBindings: state.settings.keyBindings.map((kb) =>
           kb.id === id && !kb.keys.includes(key)
             ? { ...kb, keys: [...kb.keys, key] }
             : kb
         ),
-      },
-    }));
+      };
+      debouncedSave(newSettings);
+      return { settings: newSettings };
+    });
   },
 
   removeKeyFromBinding: (id, key) => {
-    set((state) => ({
-      settings: {
+    set((state) => {
+      const newSettings = {
         ...state.settings,
         keyBindings: state.settings.keyBindings.map((kb) =>
           kb.id === id
             ? { ...kb, keys: kb.keys.filter((k) => k !== key) }
             : kb
         ),
-      },
-    }));
+      };
+      debouncedSave(newSettings);
+      return { settings: newSettings };
+    });
   },
 
   addMouseActionToBinding: (id, action) => {
-    set((state) => ({
-      settings: {
+    set((state) => {
+      const newSettings = {
         ...state.settings,
         keyBindings: state.settings.keyBindings.map((kb) => {
           if (kb.id !== id) return kb;
@@ -202,21 +246,25 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           if (mouseActions.includes(action)) return kb;
           return { ...kb, mouseActions: [...mouseActions, action] };
         }),
-      },
-    }));
+      };
+      debouncedSave(newSettings);
+      return { settings: newSettings };
+    });
   },
 
   removeMouseActionFromBinding: (id, action) => {
-    set((state) => ({
-      settings: {
+    set((state) => {
+      const newSettings = {
         ...state.settings,
         keyBindings: state.settings.keyBindings.map((kb) =>
           kb.id === id
             ? { ...kb, mouseActions: (kb.mouseActions || []).filter((a) => a !== action) }
             : kb
         ),
-      },
-    }));
+      };
+      debouncedSave(newSettings);
+      return { settings: newSettings };
+    });
   },
 
   getBindingForCommand: (command) => {
@@ -231,11 +279,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 
   resetKeyBindings: () => {
-    set((state) => ({
-      settings: {
+    set((state) => {
+      const newSettings = {
         ...state.settings,
         keyBindings: defaultSettings.keyBindings,
-      },
-    }));
+      };
+      debouncedSave(newSettings);
+      return { settings: newSettings };
+    });
   },
 }));

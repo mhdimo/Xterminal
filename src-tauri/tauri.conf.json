@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Xterminal",
   "version": "0.1.0",
-  "identifier": "com.tauri.dev",
+  "identifier": "com.xterminal.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:3000",
@@ -37,6 +37,9 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "category": "Utility",
+    "shortDescription": "A modern terminal emulator inspired by Windows Terminal",
+    "longDescription": "Xterminal is a feature-rich terminal emulator for Linux, inspired by Windows Terminal. It features tabs, split panes, customizable profiles, color schemes, and keyboard shortcuts."
   }
 }

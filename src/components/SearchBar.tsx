@@ -110,7 +110,7 @@ export function SearchBar({
       {/* Status indicator */}
       {query && hasResults !== null && (
         <span className={cn(
-          "text-xs min-w-[60px]",
+          "text-xs min-w-15",
           hasResults ? "text-gray-500" : "text-red-400"
         )}>
           {hasResults ? 'Found' : 'No results'}
